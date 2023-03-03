@@ -12,7 +12,6 @@ from gdk.aws_clients.Greengrassv2Client import Greengrassv2Client
 from gdk.aws_clients.S3Client import S3Client
 from gdk.commands.Command import Command
 from gdk.common.exceptions.CommandError import InvalidArgumentsError
-from gdk.recipes.RecipeFactory import RecipeFactory
 
 
 class PublishCommand(Command):
@@ -23,7 +22,6 @@ class PublishCommand(Command):
         self.service_clients = project_utils.get_service_clients(self._get_region())
         self.s3_client = S3Client(self.project_config, self.service_clients)
         self.greengrass_client = Greengrassv2Client(self.project_config, self.service_clients)
-        self.recipe_factory = RecipeFactory()
 
     def run(self):
         try:
@@ -257,7 +255,7 @@ class PublishCommand(Command):
         build_recipe = Path(self.project_config["gg_build_recipes_dir"]).joinpath(
             self.project_config["component_recipe_file"].name
         )
-        parsed_component_recipe = self.recipe_factory.get(build_recipe).load()
+        parsed_component_recipe = project_utils.parse_recipe_file(build_recipe)
         if "ComponentName" in parsed_component_recipe:
             if parsed_component_recipe["ComponentName"] != component_name:
                 logging.error("Component '{}' is not build.".format(parsed_component_recipe["ComponentName"]))
@@ -319,12 +317,16 @@ class PublishCommand(Command):
         publish_recipe_file_name = f"{component_name}-{component_version}.{ext}"  # Eg. HelloWorld-1.0.0.yaml
         publish_recipe_file = Path(self.project_config["gg_build_recipes_dir"]).joinpath(publish_recipe_file_name).resolve()
         self.project_config["publish_recipe_file"] = publish_recipe_file
-        try:
-            logging.debug(
-                "Creating component recipe '{}' in '{}'.".format(
-                    publish_recipe_file_name, self.project_config["gg_build_recipes_dir"]
+        with open(publish_recipe_file, "w") as prf:
+            try:
+                logging.debug(
+                    "Creating component recipe '{}' in '{}'.".format(
+                        publish_recipe_file_name, self.project_config["gg_build_recipes_dir"]
+                    )
                 )
-            )
-            self.recipe_factory.get(publish_recipe_file).write(parsed_component_recipe)
-        except Exception as e:
-            raise Exception("""Failed to create publish recipe file at '{}'.\n{}""".format(publish_recipe_file, e))
+                if publish_recipe_file_name.endswith(".json"):
+                    prf.write(json.dumps(parsed_component_recipe, indent=4))
+                else:
+                    yaml.dump(parsed_component_recipe, prf)
+            except Exception as e:
+                raise Exception("""Failed to create publish recipe file at '{}'.\n{}""".format(publish_recipe_file, e))
